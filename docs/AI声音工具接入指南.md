@@ -181,18 +181,6 @@ pipeline 是**逐窗口**调用合成的（每段一句话），不是一次扔�
 | **Fish-Speech** | 零样本克隆 | 5~10 秒样本 | 是（靠缓存锁） | 快速克隆、稳定性好 |
 | edge-tts（自带） | 云端 | 联网即可 | 否（确定性） | 开箱即用、零成本、音质已够好 |
 
----
-
-## 五、CosyVoice 整合包去哪下（截至 2026-11）
-
-本机是 RTX 4070 Laptop 8G 显存，跑 CosyVoice2-0.5B 绰绰有余（约 1.6GB 显存）。几个现成的一键包：
-
-- **魔搭社区 · 雪山凌狐 CosyVoice2-0.5B 整合包**（约 6.77GB）
-  `https://modelscope.cn/models/xueshanlinghu/CosyVoice2-0.5B-zhenghebao`
-  纯英文目录解压 → 双击 `start.bat` → 浏览器开 `localhost:50000`，自带 Web UI 和 API。
-- **CosyVoiceDesktop（GitHub，Moeary）**：懒人一键包 + 源码两种装法，带 API 服务，方便对接：
-  `https://github.com/Moeary/CosyVoiceDesktop`
-- **CosyVoice v3 免安装一键包**：约 12.4GB，支持破音字控制、音色保存、50 系显卡，6G 显存可跑。
 
 整合包**自带 Python + PyTorch 环境**，独立的，不用碰你机器上的 Python 3.10 / 3.13，也不用修那个坏掉的 torch。对接时走它的 HTTP API（通常是 `localhost:50000`）最省事——上面第二节的示例就是走 API 的写法。
 
