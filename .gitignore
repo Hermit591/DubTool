@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# 运行环境
+venv/
+.venv/
+env/
+
+# 用户数据与中间产物（不进仓库）
+work/
+输出/
+*.mp4
+*.mp3
+*.wav
+*.m4a
+*.srt
+*_校验报告.json
+*_时间轴.json
+*.log
+
+# 可选的离线识别模型（体积大，用户自行下载）
+models/
+
+# 本机配置里可能写入的绝对路径——首次运行会生成，不提交
+# config.json 保留为模板（不含本机路径）
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store

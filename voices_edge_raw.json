@@ -1,0 +1,86 @@
+[
+  {
+    "name": "zh-HK-HiuGaaiNeural",
+    "gender": "Female",
+    "locale": "zh-HK",
+    "friendly": "Microsoft HiuGaai Online (Natural) - Chinese (Cantonese Traditional)"
+  },
+  {
+    "name": "zh-HK-HiuMaanNeural",
+    "gender": "Female",
+    "locale": "zh-HK",
+    "friendly": "Microsoft HiuMaan Online (Natural) - Chinese (Hong Kong SAR)"
+  },
+  {
+    "name": "zh-HK-WanLungNeural",
+    "gender": "Male",
+    "locale": "zh-HK",
+    "friendly": "Microsoft WanLung Online (Natural) - Chinese (Hong Kong SAR)"
+  },
+  {
+    "name": "zh-CN-XiaoxiaoNeural",
+    "gender": "Female",
+    "locale": "zh-CN",
+    "friendly": "Microsoft Xiaoxiao Online (Natural) - Chinese (Mainland)"
+  },
+  {
+    "name": "zh-CN-XiaoyiNeural",
+    "gender": "Female",
+    "locale": "zh-CN",
+    "friendly": "Microsoft Xiaoyi Online (Natural) - Chinese (Mainland)"
+  },
+  {
+    "name": "zh-CN-YunjianNeural",
+    "gender": "Male",
+    "locale": "zh-CN",
+    "friendly": "Microsoft Yunjian Online (Natural) - Chinese (Mainland)"
+  },
+  {
+    "name": "zh-CN-YunxiNeural",
+    "gender": "Male",
+    "locale": "zh-CN",
+    "friendly": "Microsoft Yunxi Online (Natural) - Chinese (Mainland)"
+  },
+  {
+    "name": "zh-CN-YunxiaNeural",
+    "gender": "Male",
+    "locale": "zh-CN",
+    "friendly": "Microsoft Yunxia Online (Natural) - Chinese (Mainland)"
+  },
+  {
+    "name": "zh-CN-YunyangNeural",
+    "gender": "Male",
+    "locale": "zh-CN",
+    "friendly": "Microsoft Yunyang Online (Natural) - Chinese (Mainland)"
+  },
+  {
+    "name": "zh-CN-liaoning-XiaobeiNeural",
+    "gender": "Female",
+    "locale": "zh-CN-liaoning",
+    "friendly": "Microsoft Xiaobei Online (Natural) - Chinese (Northeastern Mandarin)"
+  },
+  {
+    "name": "zh-TW-HsiaoChenNeural",
+    "gender": "Female",
+    "locale": "zh-TW",
+    "friendly": "Microsoft HsiaoChen Online (Natural) - Chinese (Taiwan)"
+  },
+  {
+    "name": "zh-TW-YunJheNeural",
+    "gender": "Male",
+    "locale": "zh-TW",
+    "friendly": "Microsoft YunJhe Online (Natural) - Chinese (Taiwan)"
+  },
+  {
+    "name": "zh-TW-HsiaoYuNeural",
+    "gender": "Female",
+    "locale": "zh-TW",
+    "friendly": "Microsoft HsiaoYu Online (Natural) - Chinese (Taiwanese Mandarin)"
+  },
+  {
+    "name": "zh-CN-shaanxi-XiaoniNeural",
+    "gender": "Female",
+    "locale": "zh-CN-shaanxi",
+    "friendly": "Microsoft Xiaoni Online (Natural) - Chinese (Zhongyuan Mandarin Shaanxi)"
+  }
+]
