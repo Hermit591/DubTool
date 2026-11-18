@@ -135,12 +135,134 @@ class EdgeTTSEngine:
         return {i: (arr, SR) for i, arr in res}
 
 
+class CosyVoiceEngine:
+    """CosyVoice3 本地推理引擎（经 Gradio API 调用本机 webui 服务）。
+
+    前置：本机已启动 CosyVoice webui（如 D:\\CosyVoiceDesktop，双击 启动webui.bat，
+    端口默认 8000）。首次启动会自动从 ModelScope 下载模型。
+
+    说明：
+    - CosyVoice3 要求 prompt 文本末尾带 <|endofprompt|> 分隔标记，本类自动补，调用方无感。
+    - 生成走 GPU，串行逐段合成（webui 队列并发=2，并发提交无收益）。
+    - 固定 seed 保证同参数同文本结果可复现；上层 tts_cache 再做一层落盘缓存。
+    - 语速：CosyVoice 的 speed 与 edge 的 rate 百分比换算为 speed = 1 + pct/100，
+      限幅 [0.5, 2.0]。
+    """
+
+    name = "cosyvoice"
+
+    def __init__(self, api="http://127.0.0.1:8000", prompt_wav="", prompt_text="",
+                 mode="3s极速复刻", seed=42, speed=1.0, ffmpeg="ffmpeg",
+                 work_dir="work", cache=None, timeout=600):
+        from gradio_client import Client
+        self.api = api.rstrip("/")
+        self.prompt_wav = os.path.abspath(prompt_wav) if prompt_wav else ""
+        self.prompt_text = (prompt_text or "").strip()
+        self.mode = mode or "3s极速复刻"
+        self.seed = int(seed)
+        self.speed = float(speed)
+        self.ffmpeg = ffmpeg
+        self.tmp = os.path.join(work_dir, "tts_cosyvoice")
+        os.makedirs(self.tmp, exist_ok=True)
+        self.cache = cache
+        self.timeout = int(timeout)
+        self.client = Client(self.api, verbose=False)
+
+    def _speed_for(self, pct: float) -> float:
+        return float(np.clip(1.0 + float(pct) / 100.0, 0.5, 2.0))
+
+    def _k(self, text, speed):
+        return cache_key("cosyvoice", self.api, self.prompt_wav, self.prompt_text,
+                         self.mode, str(self.seed), f"{speed:.3f}", text)
+
+    def _synth_one(self, text, speed):
+        """合成一段，返回 48k float32 波形。空文本返回 50ms 静音。"""
+        if not (text or "").strip():
+            return np.zeros(SR // 20, dtype=np.float32)
+        # gradio_client>=0.10 用 file() 包装本地文件；旧版直接传路径字符串
+        try:
+            from gradio_client import file as gr_file
+            wav_arg = gr_file(self.prompt_wav) if self.prompt_wav else None
+        except ImportError:
+            wav_arg = self.prompt_wav or None
+        # 位置参数顺序（与 webui view_api 一致，新旧 gradio_client 均兼容）：
+        # tts_text, mode, sft_dropdown, prompt_text, prompt_wav_upload,
+        # prompt_wav_record, instruct_text, seed, stream, speed
+        result = self.client.predict(
+            text,
+            self.mode,
+            "",
+            self.prompt_text + "<|endofprompt|>",
+            wav_arg,
+            None,
+            "",
+            self.seed,
+            False,
+            float(np.clip(speed, 0.5, 2.0)),
+            api_name="/generate_audio")
+        src = result[0] if isinstance(result, (list, tuple)) else result
+        if not src or not os.path.exists(src):
+            raise RuntimeError("CosyVoice 未返回音频文件")
+        y = _decode_to_48k(src, self.ffmpeg)
+        try:
+            os.remove(src)          # gradio 临时文件，用完即删
+        except OSError:
+            pass
+        if y is None or len(y) < int(SR * 0.05):
+            raise RuntimeError("CosyVoice 返回波形过短")
+        return y
+
+    def _get(self, i, text, speed, tag="a"):
+        k = self._k(text or " ", speed)
+        if self.cache is not None:
+            hit = self.cache.get(k)
+            if hit is not None:
+                return i, np.asarray(hit[0], dtype=np.float32)
+        y = self._synth_one(text, speed)
+        if self.cache is not None:
+            self.cache.put(k, y, SR)
+        return i, y
+
+    def synth_batch(self, texts, log=print):
+        out = []
+        for i, t in enumerate(texts):
+            _, y = self._get(i, t or " ", self.speed)
+            out.append(y)
+            log(f"[TTS] cosyvoice {i+1}/{len(texts)} 段完成")
+        extra = f"  {self.cache.summary()}" if self.cache is not None else ""
+        log(f"[TTS] cosyvoice 合成 {len(out)} 段  mode={self.mode} "
+            f"seed={self.seed} speed={self.speed}{extra}")
+        return [(y, SR) for y in out]
+
+    def resynth(self, index, text, speed):
+        _, y = self._get(index, text or " ", self._speed_for(speed), tag="b")
+        return y, SR
+
+    def resynth_many(self, jobs, texts, tag="r"):
+        """CosyVoice 走 GPU 串行；jobs 里带各自目标 pct。"""
+        res = {}
+        for i, pct in jobs:
+            _, y = self._get(i, texts[i] or " ", self._speed_for(pct), tag=tag)
+            res[i] = (y, SR)
+        return res
+
+
 def make_engine(cfg, ffmpeg):
-    """工厂：默认返回 edge-tts。接入新引擎时在下方按 tts_engine 分支扩展。"""
+    """工厂：按 tts_engine 分支返回对应引擎。"""
     cache = None
     if cfg.get("tts_cache", True):
         root = cfg.get("tts_cache_dir") or os.path.join(cfg["work_dir"], "tts_cache")
         cache = DiskCache(root)
+    engine = cfg.get("tts_engine", "edge-tts")
+    if engine == "cosyvoice":
+        return CosyVoiceEngine(
+            api=cfg.get("cosy_api", "http://127.0.0.1:8000"),
+            prompt_wav=cfg.get("cosy_prompt_wav", ""),
+            prompt_text=cfg.get("cosy_prompt_text", ""),
+            mode=cfg.get("cosy_mode", "3s极速复刻"),
+            seed=cfg.get("cosy_seed", 42),
+            speed=cfg.get("cosy_speed", 1.0),
+            ffmpeg=ffmpeg, work_dir=cfg["work_dir"], cache=cache)
     return EdgeTTSEngine(
         voice=cfg["edge_voice"], rate=cfg["edge_rate"], pitch=cfg["edge_pitch"],
         concurrency=cfg.get("edge_concurrency", 4), ffmpeg=ffmpeg,

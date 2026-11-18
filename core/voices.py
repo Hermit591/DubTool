@@ -31,6 +31,10 @@ def library():
         items.append({"id": "edge:" + name, "engine": "edge-tts", "gender": gender,
                       "label": label, "group": "在线神经语音 · 男声" if gender == "male"
                       else "在线神经语音 · 女声"})
+    # 本地大模型音色：需要先启动对应服务（见 docs/AI声音工具接入指南.md）
+    items.append({"id": "cosyvoice:local", "engine": "cosyvoice", "gender": "female",
+                  "label": "CosyVoice3 · 本地真人级（需启动服务）",
+                  "group": "本地大模型 · 需启动服务"})
     return items
 
 
@@ -47,7 +51,10 @@ def apply(cfg, voice_id):
     if voice_id.startswith("edge:"):
         cfg["tts_engine"] = "edge-tts"
         cfg["edge_voice"] = voice_id[5:]
-    # 自定义引擎（cosyvoice: / sovits: 等）在此按前缀扩展，
+    elif voice_id.startswith("cosyvoice:"):
+        # prompt_wav/prompt_text 等参数从 config.json 的 cosy_* 字段读取
+        cfg["tts_engine"] = "cosyvoice"
+    # 自定义引擎（sovits: 等）在此按前缀扩展，
     # 见 docs/AI声音工具接入指南.md
     cfg["voice"] = voice_id
     return cfg

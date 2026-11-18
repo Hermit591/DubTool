@@ -340,9 +340,12 @@ class App(tk.Tk):
         if not it:
             return
         # 音色下拉就是引擎开关：把引擎名直接打出来，避免改配置以为换了引擎。
+        tip = ("在线神经语音（需联网）" if it["engine"] == "edge-tts"
+               else "本地大模型（需先启动 CosyVoice 服务，参数见 config.json 的 cosy_* 项）")
+        color = "#2a6fb0" if it["engine"] == "edge-tts" else "#0f6e56"
         self.voice_info.config(
-            text=f"引擎 {it['engine']}  |  {it['label']}  |  在线神经语音（需联网）  |  ID {it['id']}",
-            foreground="#2a6fb0")
+            text=f"引擎 {it['engine']}  |  {it['label']}  |  {tip}  |  ID {it['id']}",
+            foreground=color)
         self._show_rate(); self._show_pitch()
 
     def _show_rate(self, *_):

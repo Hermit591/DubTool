@@ -4,6 +4,33 @@ DubTool 最值钱的部分是**时间轴对齐**（波形切分、语速均衡�
 
 ---
 
+## 〇、CosyVoice3 已内置（开箱即用）
+
+`CosyVoiceEngine` 已写进 `core/tts.py`，无需再自己接入。用法：
+
+1. 下载 CosyVoice3 整合包（如 pyVideoTrans 打包版 / CosyVoiceDesktop），解压到纯英文路径，双击 `启动webui.bat` 启动（首次自动从 ModelScope 下载模型，国内源速度很快）；
+2. 在 `config.json` 里配置：
+
+```json
+{
+  "voice": "cosyvoice:local",
+  "cosy_api": "http://127.0.0.1:8000",
+  "cosy_prompt_wav": "D:/CosyVoiceDesktop/asset/zero_shot_prompt.wav",
+  "cosy_prompt_text": "希望你以后能够做的比我还好呦。",
+  "cosy_mode": "3s极速复刻",
+  "cosy_seed": 42
+}
+```
+
+3. 启动 DubTool，音色下拉选「CosyVoice3 · 本地真人级」即可。想换音色，把 `cosy_prompt_wav` 换成任意 3~10 秒干净人声、`cosy_prompt_text` 填对应文字。
+
+实现要点（自己写引擎时同样适用）：
+- CosyVoice3 要求 prompt 文本末尾带 `<|endofprompt|>` 分隔标记；
+- gradio_client 需 ≥1.x（旧版 0.5 的 WebSocket 会被新 Gradio 拒绝，`pip install -U gradio_client`）；
+- 调用参数顺序见 `CosyVoiceEngine._synth_one` 注释；固定 `seed` 保证可复现，上层缓存再兜底一层。
+
+---
+
 ## 一、引擎接口契约
 
 `core/pipeline.py` 只要求合成引擎实现三个方法：
