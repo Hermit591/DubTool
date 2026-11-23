@@ -123,13 +123,26 @@ def run(cfg, log=print, progress=lambda pct, msg: None, cancel=lambda: False):
     # 字幕/时间轴只展示原字：去掉行内读音标注（合成已用 fix 后的文本）
     for s in segs:
         s["text"] = pron.clean(s["text"])
-    # 把每个句子块的实际发声终点回填到它覆盖的各段 voice_end，
-    # 供 mux.verify / 字幕 / 时间轴使用：句子起点锚定画面，终点跟着波形走。
+    # 把句子块的实际发声区间按字数比例分摊到它覆盖的各段，回填每段的
+    # start / end / voice_end：让时间轴段级字段自洽（不再同句所有段共用一个
+    # 句尾值），手动微调时每一段都有独立、递增、符合字数的时间点。
+    # 注意：这只影响时间轴展示/字幕/校验；实际铺轨仍由 blocks 整块连续播放，
+    # 句内不会真的在这些切点断开。
     for pos, g in enumerate(order):
         blk = blocks[pos]
-        ve = round(blk["start"] + blk["native"], 4)
-        for i in groups[g]:
-            segs[i]["voice_end"] = ve
+        st = blk["start"]
+        ve_all = st + blk["native"]
+        idxs = groups[g]
+        weights = [max(1, len([c for c in segs[i]["text"] if "\u4e00" <= c <= "\u9fff"]))
+                   for i in idxs]
+        tot = float(sum(weights)) or 1.0
+        cursor = st
+        for k, i in enumerate(idxs):
+            seg_end = ve_all if k == len(idxs) - 1 else st + (ve_all - st) * (sum(weights[:k + 1]) / tot)
+            segs[i]["start"] = round(cursor, 4)
+            segs[i]["end"] = round(seg_end, 4)
+            segs[i]["voice_end"] = round(seg_end, 4)
+            cursor = seg_end
     srt_new = []
     for k, (a, b, t) in enumerate(srt):
         if k < len(blocks):
