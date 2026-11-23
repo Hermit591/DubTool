@@ -1,18 +1,12 @@
-"""逐窗口合成语音。
+"""第 4 步：逐窗口合成语音。两种引擎返回统一格式 [(波形 float32, 采样率), ...]。
 
-默认且唯一的内置引擎是 edge-tts（微软神经语音）：联网、快、音质好，
-服务端逐样本确定性，同一输入重复合成结果完全一致。
+  edge-tts  : 微软神经语音，联网、快、音质好（默认）；实测服务端逐样本确定性
+  local-vits: sherpa-onnx + AISHELL-3，纯离线，8kHz 频带；同参数每次采样不同，
+              是真正的「抽卡」，靠缓存锁定 + 可选 best-of-N 显式抽卡控制。
+  cosyvoice : CosyVoice3 本地大模型，经 Gradio API 调本机 webui，真人级音质、声音克隆。
 
-想要 CosyVoice / GPT-SoVITS / 其他本地或自研引擎？本类就是可插拔接口：
-任何引擎只要实现
-    synth_batch(texts, log) -> [(波形 float32, 采样率), ...]
-    resynth(index, text, speed) -> (波形 float32, 采样率)
-    resynth_many(jobs, texts, tag) -> {index: (波形, 采样率)}
-三个方法即可无缝接入 pipeline，时间轴对齐那套完全不用动。
-详见 docs/AI声音工具接入指南.md。
-
-所有引擎共享 tts_cache：按（引擎 / 音色 / 参数 / 文本）做 key，
-第一次生成后落盘，之后命中即复用，成品逐样本可复现、断网也能复跑。
+三个引擎都走 tts_cache：按（引擎 / 音色 / rate / pitch / volume / 文本）做 key，
+第一次生成后落盘，之后命中即复用，成品逐样本可复现。
 """
 import os
 import asyncio
@@ -135,6 +129,74 @@ class EdgeTTSEngine:
         return {i: (arr, SR) for i, arr in res}
 
 
+class LocalVITSEngine:
+    name = "local-vits"
+
+    def __init__(self, model_dir, sid=60, num_threads=4, cache=None, samples=1):
+        import sherpa_onnx
+        vits = sherpa_onnx.OfflineTtsVitsModelConfig(
+            model=os.path.join(model_dir, "vits-aishell3.onnx"),
+            lexicon=os.path.join(model_dir, "lexicon.txt"),
+            tokens=os.path.join(model_dir, "tokens.txt"))
+        cfg = sherpa_onnx.OfflineTtsConfig(
+            model=sherpa_onnx.OfflineTtsModelConfig(vits=vits, num_threads=num_threads),
+            max_num_sentences=1)
+        if not cfg.validate():
+            raise FileNotFoundError("本地 VITS 模型缺失，检查 models/aishell3/ 下三个文件")
+        self.tts = sherpa_onnx.OfflineTts(cfg)
+        self.sr = self.tts.sample_rate
+        self.sid = int(sid)
+        self.cache = cache
+        self.samples = max(1, int(samples))   # 显式抽卡次数，1 = 抽一次就锁死
+        self.model_tag = os.path.basename(os.path.normpath(model_dir))
+
+    def _k(self, text, speed):
+        return cache_key("vits", self.model_tag, self.sid, f"{float(speed):.4f}", text)
+
+    def _gen(self, text, speed):
+        """生成一次并缓存；samples>1 时显式抽 N 张，取时长最接近中位数的一张。
+
+        VITS 的随机时长预测器会让同一句话每次长短差 15%，离群样本会连带
+        把 pipeline 的 rate 反解带偏。best-of-N 把隐性抽卡变成可控参数。
+        """
+        t = text or " "
+        k = self._k(t, speed)
+        if self.cache is not None:
+            hit = self.cache.get(k)
+            if hit is not None:
+                return hit
+        cands = []
+        for _ in range(self.samples):
+            a = self.tts.generate(t, sid=self.sid, speed=float(speed))
+            cands.append(np.asarray(a.samples, dtype=np.float32))
+        if len(cands) > 1:
+            med = float(np.median([len(c) for c in cands]))
+            y = min(cands, key=lambda c: abs(len(c) - med))
+        else:
+            y = cands[0]
+        y = np.ascontiguousarray(y, dtype=np.float32)
+        if self.cache is not None:
+            self.cache.put(k, y, self.sr)
+        return y, self.sr
+
+    def synth_batch(self, texts, log=print):
+        out = [self._gen(t, 1.0) for t in texts]
+        extra = f"  {self.cache.summary()}" if self.cache is not None else ""
+        log(f"[TTS] 本地 VITS 合成 {len(out)} 段  sid={self.sid} sr={self.sr}"
+            f" 抽卡={self.samples}{extra}")
+        return out
+
+    def resynth(self, index, text, speed):
+        return self._gen(text, speed)
+
+    def resynth_many(self, jobs, texts, tag="r"):
+        out = {}
+        for i, pct in jobs:
+            speed = float(np.clip(1.0 + pct / 100.0, 0.5, 2.0))
+            out[i] = self._gen(texts[i], speed)
+        return out
+
+
 class CosyVoiceEngine:
     """CosyVoice3 本地推理引擎（经 Gradio API 调用本机 webui 服务）。
 
@@ -248,7 +310,6 @@ class CosyVoiceEngine:
 
 
 def make_engine(cfg, ffmpeg):
-    """工厂：按 tts_engine 分支返回对应引擎。"""
     cache = None
     if cfg.get("tts_cache", True):
         root = cfg.get("tts_cache_dir") or os.path.join(cfg["work_dir"], "tts_cache")
@@ -263,6 +324,9 @@ def make_engine(cfg, ffmpeg):
             seed=cfg.get("cosy_seed", 42),
             speed=cfg.get("cosy_speed", 1.0),
             ffmpeg=ffmpeg, work_dir=cfg["work_dir"], cache=cache)
+    if engine == "local-vits":
+        return LocalVITSEngine(cfg["aishell3_dir"], sid=cfg.get("local_sid", 60),
+                               cache=cache, samples=int(cfg.get("vits_samples", 1)))
     return EdgeTTSEngine(
         voice=cfg["edge_voice"], rate=cfg["edge_rate"], pitch=cfg["edge_pitch"],
         concurrency=cfg.get("edge_concurrency", 4), ffmpeg=ffmpeg,

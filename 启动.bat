@@ -1,17 +1,12 @@
 @echo off
-chcp 65001 >nul
 set PYTHONUTF8=1
 cd /d "%~dp0"
-set "PY=python"
-where python >nul 2>&1 || (
-  echo [ERROR] Python not found. Install Python 3.10+ and check "Add to PATH".
-  pause
-  exit /b 1
-)
-echo Starting DubTool ...
+set "PY=D:\Python3.10\python.exe"
+if not exist "%PY%" set "PY=python"
+echo Starting Video Dubbing Tool ...
 "%PY%" app.py
 if errorlevel 1 (
   echo.
-  echo Startup failed. Run "安装依赖.bat" first.
+  echo Startup failed. Please run the installer BAT in D:\DubTool first.
   pause
 )

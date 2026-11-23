@@ -84,8 +84,8 @@ class App(tk.Tk):
         ttk.Entry(r, textvariable=self.tl_var, font=f).pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(r, text="选择…", command=self._pick_tl).pack(side="left")
         ttk.Button(r, text="清除", command=lambda: self.tl_var.set("")).pack(side="left", padx=4)
-        ttk.Label(g1, text="（选了时间轴就跳过识别。手动微操：①关掉第4步『语速均衡』→ JSON 里的 text/end/voice_end 全部直接生效；"
-                  "②想保留自动均衡、只锁住你手改的某段→给那段加 \"locked\": true 字段）",
+        ttk.Label(g1, text="（选了时间轴＝完全以你改过的 JSON 为准：text/start/end/voice_end 原样生效，不再自动重排、无需任何标记；"
+                  "不选才自动识别并重排节奏）",
                   foreground="#888", font=("Microsoft YaHei UI", 9)).grid(row=3, column=1, sticky="w")
 
         # 2 音色
@@ -97,6 +97,7 @@ class App(tk.Tk):
         self.voice_cb = ttk.Combobox(r, textvariable=self.voice_var, font=f, width=62, state="readonly")
         self.voice_cb.pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(r, text="试听", command=self._preview).pack(side="left")
+        ttk.Button(r, text="刷新本地音色", command=self._rescan).pack(side="left", padx=4)
         self.voice_info = ttk.Label(g2, text="", foreground="#2a6fb0", font=f)
         self.voice_info.pack(anchor="w", pady=(4, 2))
         r2 = ttk.Frame(g2); r2.pack(fill="x")
@@ -117,11 +118,11 @@ class App(tk.Tk):
         g3.pack(fill="both", pady=4)
         r = ttk.Frame(g3); r.pack(fill="x")
         ttk.Label(r, text="来源", font=f, width=14).pack(side="left")
-        self.asr_var = tk.StringVar(value="manual")
+        self.asr_var = tk.StringVar(value="sensevoice")
         cb = ttk.Combobox(r, textvariable=self.asr_var, font=f, width=24, state="readonly",
-                          values=["manual", "srt", "sensevoice"])
+                          values=["sensevoice", "manual", "srt"])
         cb.pack(side="left", padx=4)
-        ttk.Label(r, text="  手动每行一句 / 导入 SRT / SenseVoice 离线识别(需另下模型)",
+        ttk.Label(r, text="  本地 SenseVoice 离线识别 / 手动每行一句 / 导入 SRT",
                   foreground="#888", font=("Microsoft YaHei UI", 9)).pack(side="left")
         self.srt_var = tk.StringVar()
         r1 = ttk.Frame(g3); r1.pack(fill="x", pady=2)
@@ -179,11 +180,14 @@ class App(tk.Tk):
         ttk.Label(r4c, text="0~1；统一频谱形状与响度，不再对波形做相位拉伸",
                   foreground="#888", font=("Microsoft YaHei UI", 9)).pack(side="left", padx=6)
         self.cache_var = tk.BooleanVar(value=True)
+        self.vits_n_var = tk.IntVar(value=1)
         r4d = ttk.Frame(g4); r4d.grid(row=3, column=0, columnspan=8, sticky="w", pady=(6, 0))
         ttk.Checkbutton(r4d, text="锁定合成结果（缓存，重跑逐样本一致）",
                         variable=self.cache_var).pack(side="left")
+        ttk.Label(r4d, text="   离线抽卡次数", font=f).pack(side="left", padx=(10, 0))
+        ttk.Entry(r4d, textvariable=self.vits_n_var, width=5, font=f).pack(side="left", padx=4)
         ttk.Button(r4d, text="清空缓存", command=self._clear_cache).pack(side="left", padx=10)
-        ttk.Label(r4d, text="edge-tts 云端确定性合成；缓存命中时断网也能原样复现",
+        ttk.Label(r4d, text="离线 VITS 每次采样不同；填 3~5 可挑最稳的一张并锁死",
                   foreground="#888", font=("Microsoft YaHei UI", 9)).pack(side="left", padx=4)
 
         # 5 运行
@@ -223,7 +227,7 @@ class App(tk.Tk):
         from core.tts_cache import DiskCache
         root = os.path.join(self.cfg["work_dir"], "tts_cache")
         n = DiskCache(root).clear()
-        self._log(f"已清空合成缓存（{n} 个文件）。下次运行会重新向 TTS 引擎请求。")
+        self._log(f"已清空合成缓存（{n} 个文件）。下次运行会重新生成，离线音色会重新抽卡。")
 
     # ---------------- 配置 ----------------
     def _load_cfg(self):
@@ -232,7 +236,7 @@ class App(tk.Tk):
         self.out_var.set(c.get("output", ""))
         self.tl_var.set(c.get("timeline_file", ""))
         self.srt_var.set(c.get("srt_path", ""))
-        self.asr_var.set(c.get("asr_engine", "manual"))
+        self.asr_var.set(c.get("asr_engine", "sensevoice"))
         self.gap_var.set(c.get("speaker_gap", 0.60))
         self.sil_var.set(c.get("min_silence", 0.20))
         self.db_var.set(c.get("noise_db", -38))
@@ -245,6 +249,7 @@ class App(tk.Tk):
         self.tone_str_var.set(float(c.get("tone_strength", 0.85)))
         self.stretch_var.set(bool(c.get("allow_stretch", False)))
         self.cache_var.set(bool(c.get("tts_cache", True)))
+        self.vits_n_var.set(int(c.get("vits_samples", 1)))
         try:
             self.rate_var.set(int(str(c.get("edge_rate", "-4%")).replace("%", "")))
             self.pitch_var.set(int(str(c.get("edge_pitch", "-2Hz")).replace("Hz", "")))
@@ -252,8 +257,8 @@ class App(tk.Tk):
             pass
         self._show_rate(); self._show_pitch()
         self._reload_voices(c.get("voice") or voices.default_id())
-        self._log(f"就绪。音色库：{len(voices.library())} 个（在线神经语音）")
-        self._log("提示：请先在「3 · 台词来源」填入台词或导入 SRT；合成需联网。")
+        self._log(f"就绪。音色库：{len(voices.library())} 个（男/女，在线 + 本地离线）")
+        self._log("提示：在线神经语音需联网；本地离线语音完全不联网。")
 
     def _reload_voices(self, selected=None):
         vals, self.voice_map = [], {}
@@ -295,6 +300,7 @@ class App(tk.Tk):
             "tone_strength": float(self.tone_str_var.get()),
             "allow_stretch": bool(self.stretch_var.get()),
             "tts_cache": bool(self.cache_var.get()),
+            "vits_samples": max(1, int(self.vits_n_var.get())),
             "edge_rate": f"{int(self.rate_var.get()):+d}%",
             "edge_pitch": f"{int(self.pitch_var.get()):+d}Hz",
             "voice": self.voice_map.get(self.voice_var.get(), {"id": voices.default_id()})["id"],
@@ -339,12 +345,16 @@ class App(tk.Tk):
         it = self.voice_map.get(self.voice_var.get())
         if not it:
             return
+        eng = it["engine"]
         # 音色下拉就是引擎开关：把引擎名直接打出来，避免改配置以为换了引擎。
-        tip = ("在线神经语音（需联网）" if it["engine"] == "edge-tts"
-               else "本地大模型（需先启动 CosyVoice 服务，参数见 config.json 的 cosy_* 项）")
-        color = "#2a6fb0" if it["engine"] == "edge-tts" else "#0f6e56"
+        tip = {"edge-tts": "在线神经语音（需联网，音质好）",
+               "local-vits": "本地离线 ONNX（不联网，词典可强制读音，8kHz）",
+               "cosyvoice": "本地大模型（需先启动 CosyVoice 服务，参数见 config.json 的 cosy_* 项）"}.get(
+                   eng, "本地引擎")
+        color = {"edge-tts": "#2a6fb0", "local-vits": "#c0392b",
+                 "cosyvoice": "#0f6e56"}.get(eng, "#555")
         self.voice_info.config(
-            text=f"引擎 {it['engine']}  |  {it['label']}  |  {tip}  |  ID {it['id']}",
+            text=f"引擎 {eng}  |  {it['label']}  |  {tip}  |  ID {it['id']}",
             foreground=color)
         self._show_rate(); self._show_pitch()
 
@@ -479,8 +489,17 @@ class App(tk.Tk):
             from core.config import resolve_ffmpeg
             ff = resolve_ffmpeg(c)
             text = "大家好，这是一段试听语音，用来确认当前音色是否合适。"
-            e = tts.make_engine(dict(c, edge_concurrency=1), ff)
-            (y, sr) = e.synth_batch([text], log=lambda m: None)[0]
+            if it["engine"] == "edge-tts":
+                e = tts.EdgeTTSEngine(voice=c["edge_voice"], rate=c["edge_rate"],
+                                      pitch=c["edge_pitch"], concurrency=1,
+                                      ffmpeg=ff, work_dir=c["work_dir"])
+                (y, sr) = e.synth_batch([text], log=lambda m: None)[0]
+            else:
+                e = tts.LocalVITSEngine(c["aishell3_dir"], sid=int(it["id"].split(":")[1]))
+                (y, sr) = e.synth_batch([text], log=lambda m: None)[0]
+                from core.align import resample
+                y = resample(y, sr, 48000)
+                sr = 48000
             import soundfile as sf
             path = os.path.join(c["work_dir"], "试听.wav")
             sf.write(path, y / max(float(abs(y).max()), 1e-6) * 0.9, sr)
@@ -488,6 +507,20 @@ class App(tk.Tk):
             Q.put(("log", "试听已播放：" + path))
         except Exception as e:
             Q.put(("log", f"试听失败：{type(e).__name__}: {e}"))
+
+    def _rescan(self):
+        self._log("正在扫描本地模型的 174 个说话人（约 1-3 分钟）…")
+        def work():
+            try:
+                r = subprocess.run([sys.executable, os.path.join(ROOT, "core", "scan_voices.py")],
+                                   capture_output=True, text=True, encoding="utf-8",
+                                   errors="replace", cwd=ROOT, timeout=900)
+                Q.put(("log", (r.stdout or "")[-800:] or f"扫描完成 rc={r.returncode}"))
+                Q.put(("voices", self.voice_map.get(self.voice_var.get(), {}).get("id")))
+                Q.put(("log", f"本地音色库已刷新，现有 {len(voices.library())} 个音色"))
+            except Exception as e:
+                Q.put(("log", f"扫描失败：{e}"))
+        threading.Thread(target=work, daemon=True).start()
 
 
 if __name__ == "__main__":

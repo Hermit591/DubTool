@@ -1,0 +1,178 @@
+[
+  {
+    "sid": 74,
+    "gender": "male",
+    "f0": 115.1,
+    "ratio": 0.99,
+    "style": "沉稳",
+    "label": "本地沉稳男声 · 74号 (115Hz)"
+  },
+  {
+    "sid": 119,
+    "gender": "male",
+    "f0": 120.4,
+    "ratio": 0.99,
+    "style": "沉稳",
+    "label": "本地沉稳男声 · 119号 (120Hz)"
+  },
+  {
+    "sid": 136,
+    "gender": "male",
+    "f0": 134.3,
+    "ratio": 1.0,
+    "style": "温和",
+    "label": "本地温和男声 · 136号 (134Hz)"
+  },
+  {
+    "sid": 76,
+    "gender": "male",
+    "f0": 137.3,
+    "ratio": 1.0,
+    "style": "温和",
+    "label": "本地温和男声 · 76号 (137Hz)"
+  },
+  {
+    "sid": 58,
+    "gender": "male",
+    "f0": 138.6,
+    "ratio": 0.99,
+    "style": "温和",
+    "label": "本地温和男声 · 58号 (139Hz)"
+  },
+  {
+    "sid": 60,
+    "gender": "male",
+    "f0": 139.3,
+    "ratio": 1.0,
+    "style": "温和",
+    "label": "本地温和男声 · 60号 (139Hz)"
+  },
+  {
+    "sid": 167,
+    "gender": "male",
+    "f0": 140.0,
+    "ratio": 0.99,
+    "style": "温和",
+    "label": "本地温和男声 · 167号 (140Hz)"
+  },
+  {
+    "sid": 25,
+    "gender": "male",
+    "f0": 141.2,
+    "ratio": 1.0,
+    "style": "温和",
+    "label": "本地温和男声 · 25号 (141Hz)"
+  },
+  {
+    "sid": 46,
+    "gender": "male",
+    "f0": 143.1,
+    "ratio": 0.99,
+    "style": "温和",
+    "label": "本地温和男声 · 46号 (143Hz)"
+  },
+  {
+    "sid": 98,
+    "gender": "male",
+    "f0": 146.3,
+    "ratio": 0.97,
+    "style": "清亮",
+    "label": "本地清亮男声 · 98号 (146Hz)"
+  },
+  {
+    "sid": 72,
+    "gender": "male",
+    "f0": 157.0,
+    "ratio": 0.98,
+    "style": "清亮",
+    "label": "本地清亮男声 · 72号 (157Hz)"
+  },
+  {
+    "sid": 32,
+    "gender": "female",
+    "f0": 166.2,
+    "ratio": 1.0,
+    "style": "温婉",
+    "label": "本地温婉女声 · 32号 (166Hz)"
+  },
+  {
+    "sid": 83,
+    "gender": "female",
+    "f0": 199.2,
+    "ratio": 0.99,
+    "style": "甜美",
+    "label": "本地甜美女声 · 83号 (199Hz)"
+  },
+  {
+    "sid": 96,
+    "gender": "female",
+    "f0": 215.8,
+    "ratio": 0.99,
+    "style": "清脆",
+    "label": "本地清脆女声 · 96号 (216Hz)"
+  },
+  {
+    "sid": 147,
+    "gender": "female",
+    "f0": 225.8,
+    "ratio": 0.97,
+    "style": "清脆",
+    "label": "本地清脆女声 · 147号 (226Hz)"
+  },
+  {
+    "sid": 11,
+    "gender": "female",
+    "f0": 235.6,
+    "ratio": 1.0,
+    "style": "清脆",
+    "label": "本地清脆女声 · 11号 (236Hz)"
+  },
+  {
+    "sid": 139,
+    "gender": "female",
+    "f0": 243.2,
+    "ratio": 1.0,
+    "style": "明亮",
+    "label": "本地明亮女声 · 139号 (243Hz)"
+  },
+  {
+    "sid": 18,
+    "gender": "female",
+    "f0": 248.0,
+    "ratio": 1.0,
+    "style": "明亮",
+    "label": "本地明亮女声 · 18号 (248Hz)"
+  },
+  {
+    "sid": 132,
+    "gender": "female",
+    "f0": 252.4,
+    "ratio": 0.98,
+    "style": "明亮",
+    "label": "本地明亮女声 · 132号 (252Hz)"
+  },
+  {
+    "sid": 154,
+    "gender": "female",
+    "f0": 256.3,
+    "ratio": 0.81,
+    "style": "明亮",
+    "label": "本地明亮女声 · 154号 (256Hz)"
+  },
+  {
+    "sid": 50,
+    "gender": "female",
+    "f0": 267.3,
+    "ratio": 0.85,
+    "style": "明亮",
+    "label": "本地明亮女声 · 50号 (267Hz)"
+  },
+  {
+    "sid": 108,
+    "gender": "female",
+    "f0": 279.0,
+    "ratio": 0.93,
+    "style": "明亮",
+    "label": "本地明亮女声 · 108号 (279Hz)"
+  }
+]

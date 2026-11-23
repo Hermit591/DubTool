@@ -24,9 +24,8 @@ class SenseVoiceASR:
         missing = [p for p in (model, tokens) if not os.path.exists(p)]
         if missing:
             raise FileNotFoundError(
-                "SenseVoice 识别模型缺失：" + ", ".join(missing) +
-                "\n请按 README 的「可选：离线语音识别」章节下载模型，"
-                "或把台词来源改成 manual（手动输入）/ srt（导入字幕）。")
+                "本地识别模型缺失：" + ", ".join(missing) +
+                "\n请运行「一键安装依赖.bat」下载模型，或把 ASR 引擎改成「手动输入台词」。")
         self.rec = sherpa_onnx.OfflineRecognizer.from_sense_voice(
             model=model, tokens=tokens, num_threads=num_threads,
             language="zh", use_itn=True, debug=False)

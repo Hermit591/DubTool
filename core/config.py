@@ -1,10 +1,6 @@
-"""软件配置：默认值 + 持久化。所有参数用户都能在界面里改，改完写回 config.json。
-
-开源便携版：不内置任何模型、不写死任何本机路径。
-ffmpeg 默认从 PATH 查找；台词来源默认 manual（手动/粘贴），
-想要离线语音识别请自行下载 SenseVoice 模型，见 README。
-"""
+"""软件配置：默认值 + 持久化。所有参数用户都能在界面里改，改完写回 config.json。"""
 import os
+import sys
 import json
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -16,14 +12,16 @@ DEFAULT = {
     "work_dir": os.path.join(ROOT, "work"),
     "out_dir": os.path.join(ROOT, "输出"),
 
-    "tts_engine": "edge-tts",              # edge-tts | 自定义引擎（见 docs/）
-    "voice": "edge:zh-CN-YunxiNeural",      # 统一音色 ID：edge:<名>
+    "tts_engine": "edge-tts",              # edge-tts | local-vits（由 voice 自动决定）
+    "voice": "edge:zh-CN-YunxiNeural",      # 统一音色 ID：edge:<名> 或 local:<sid>
     "edge_voice": "zh-CN-YunxiNeural",      # 温和男声
     "edge_rate": "-4%",
     "edge_pitch": "-2Hz",
     "edge_concurrency": 4,
+    "local_sid": 60,
+    "local_speed_bias": 1.0,
 
-    "asr_engine": "manual",                # manual（默认） | srt | sensevoice（需自行下模型）
+    "asr_engine": "sensevoice",            # sensevoice | manual | srt
     "speaker_gap": 0.60,                   # 静音 >= 该值视为句子分界（秒）
     "min_silence": 0.20,                   # 短于此的静音归入发声段（秒）
     "noise_db": -38,                       # 静音判定阈值（dBFS）
@@ -41,12 +39,21 @@ DEFAULT = {
     "rate_iterations": 2,                  # TTS 语速参数精调轮数
     "rate_headroom": 0.985,                # 目标时长余量，宁可尾部补静音也不吞字
     "tts_cache": True,                     # 缓存合成结果：锁定随机性、断网可复现、重跑更快
+    "vits_samples": 1,                     # 本地 VITS 显式抽卡次数（>1 取时长最稳的一张）
 
-    # 可选：离线语音识别模型（不随软件分发，需自行下载放到该目录）
     "sensevoice_dir": os.path.join(ROOT, "models", "sensevoice"),
-    "ffmpeg": "ffmpeg",                    # 默认从 PATH 查找，也可填绝对路径
+    "aishell3_dir": os.path.join(ROOT, "models", "aishell3"),
+    "ffmpeg": "ffmpeg",        # 走 PATH；装了带完整路径的可在 config.json 覆盖
+    "python": sys.executable,
     "sample_rate": 48000,
     "video_bitrate": "192k",
+}
+
+EDGE_ZH_MALE = {
+    "zh-CN-YunxiNeural": "云希 · 温和自然（推荐）",
+    "zh-CN-YunjianNeural": "云健 · 沉稳浑厚",
+    "zh-CN-YunyangNeural": "云扬 · 新闻播报",
+    "zh-CN-YunxiaNeural": "云夏 · 年轻少年",
 }
 
 
@@ -68,7 +75,7 @@ def save(cfg: dict) -> None:
 
 def resolve_ffmpeg(cfg: dict) -> str:
     p = cfg.get("ffmpeg", "")
-    if p and os.path.exists(p):
+    if os.path.exists(p):
         return p
     from shutil import which
-    return which("ffmpeg") or p or "ffmpeg"
+    return which("ffmpeg") or "ffmpeg"

@@ -167,17 +167,22 @@ def balance(segs, srt, borrow=0.90, guard=0.05, log=print,
         hit = next((t for t in cands if _han(t) == _han(joined[gi])), None)
         full[gi] = hit or "，".join(s["text"] for s in groups[gi])
 
+    # ---- 句尾 / 句内停顿目标 ----
+    # 必须在算 slot 之前定好：句尾段要先把「句间留白 target_bnd」扣下来，
+    # 只把超出留白的那部分静音借给发声 —— 否则 borrow 会把句子之间
+    # 本来就不宽裕的间隔吃光，听感变成「刚说完这句立马接下一句」。
+    last_in_group = set(id(g[-1]) for g in groups.values() if g)
+    tgt = [(target_bnd if id(s) in last_in_group else target_mid) for s in segs]
+
     # ---- 每段可用时长 slot ----
     starts = [s["start"] for s in segs]
     nxt = [segs[i + 1]["start"] if i + 1 < N else total for i in range(N)]
     slot = []
     for i in range(N):
         room = max(0.0, nxt[i] - segs[i]["end"] - guard)
+        if id(segs[i]) in last_in_group:
+            room = max(0.0, room - target_bnd)   # 句间留白不借，先扣掉
         slot.append(max(0.05, (segs[i]["end"] - segs[i]["start"]) + min(borrow, room)))
-
-    # 句尾（组内最后一段）允许更大停顿，其余句内小停顿
-    last_in_group = set(id(g[-1]) for g in groups.values() if g)
-    tgt = [(target_bnd if id(s) in last_in_group else target_mid) for s in segs]
 
     total_zi = sum(len(_han(s["text"])) for s in segs)
     sum_slot = float(sum(slot))
@@ -195,14 +200,9 @@ def balance(segs, srt, borrow=0.90, guard=0.05, log=print,
     unit = 1.0 / cps
 
     # ---- 按组：切点吸附标点 → 字数按 slot 比例初分 → 停顿拉齐 → 回写 ----
+    # 注意：本函数只在「全新识别、没有复用时间轴」时被调用。手动改过的时间轴
+    # 由 pipeline 直接采用，根本不会走到这里，因此不再需要任何 locked 标记。
     for gi, g in groups.items():
-        changed = any(s.get("locked") for s in g)
-        if changed:
-            # 用户在时间轴 JSON 里给本组某段标了 "locked": true：
-            # 尊重手改，保留每段 text 与 voice_end 原样，不重切、不搬字，
-            # 后续全局步骤也不会覆写 locked 段的 voice_end。
-            log(f"[均衡] 第 {gi + 1} 句：含 locked 标记，保留你手改的文字与 voice_end")
-            continue
         clean, punc = _boundaries(full[gi])
         idxs = [segs.index(s) for s in g]
         L = len(clean)
@@ -228,12 +228,17 @@ def balance(segs, srt, borrow=0.90, guard=0.05, log=print,
     # ---- 实发时长与停顿统计 + voice_end ----
     stats = []
     for i, s in enumerate(segs):
-        if s.get("locked") and s.get("voice_end"):
-            s["voice_end"] = round(float(s["voice_end"]), 4)
-            continue
         zi = len(_han(s["text"]))
         need = zi * unit
         ve = min(starts[i] + need, starts[i] + slot[i])
+        # 硬上界：本段的发声最晚只能到「下一段起点 - 目标停顿」。
+        # 连续切片（上一段 end == 下一段 start）时旧版会在这里留 0 间隔，
+        # 听起来就是「刚说完立马接下一句」。留出 tgt 秒后，TTS 会被迫
+        # 稍微说快一点把字塞进更短窗口；超过舒适带时由下方的 log 提示用户调大窗口。
+        # 最后一段例外：视频末尾本来就有留白，且不存在「下一段贴脸」，
+        # 再扣 target_bnd 只会把短尾句挤成急板（实测 4 字塞进 0.58s = 6.9 字/秒）。
+        cap = nxt[i] if i == N - 1 else nxt[i] - tgt[i]
+        ve = min(ve, cap)
         ve = max(ve, starts[i] + 0.05)
         s["voice_end"] = round(ve, 4)
         gap = round(nxt[i] - ve, 3)

@@ -1,7 +1,7 @@
 """完整链路编排：波形切时间轴 → 文字识别 → TTS → 采样点级对齐 → 封装视频。
 
-不依赖任何智能体。默认链路：台词手动输入 / 导入 SRT + edge-tts 合成，
-只要有 ffmpeg 就能跑；识别与合成引擎都可替换，见 docs/AI声音工具接入指南.md。
+任何一步都不依赖 WorkBuddy 或云端 ASR，装好依赖后可完全离线运行
+（选 local-vits + sensevoice 时；edge-tts 需要联网但不需要智能体）。
 """
 import os
 import json
@@ -76,21 +76,25 @@ def run(cfg, log=print, progress=lambda pct, msg: None, cancel=lambda: False):
             json.dump({"duration": total, "segments": segs, "srt": srt}, f,
                       ensure_ascii=False, indent=2)
 
-    # 语速均衡：把「整句文字机械按窗口数切」和「波形强制铺满窗口」这两个
-    # 造成忽快忽慢的环节一并修正，重算文字切点与每段实际发声终点。
+    # 节奏策略：
+    #   · 复用了时间轴 = 用户手改过的文件，完全以它为准（text/start/end/voice_end
+    #     原样生效），不再自动重排，也不需要任何 locked 标记。
+    #   · 只有全新识别（没有时间轴）才跑 pace.balance 自动均衡，修忽快忽慢/贴脸段。
+    reuse_timeline = bool(tf and os.path.exists(tf))
     pace_stats = []
-    if cfg.get("pace_balance", True):
+    if cfg.get("pace_balance", True) and not reuse_timeline:
         segs, pace_stats = pace.balance(
             segs, srt, borrow=float(cfg.get("pace_borrow", 0.90)), log=log,
             target_mid=float(cfg.get("pace_pause_mid", 0.18)),
             target_bnd=float(cfg.get("pace_pause_bnd", 0.55)))
         ck(38, f"     语速均衡完成，{len(pace_stats)} 段重排")
     else:
-        # 完全手动模式：尊重用户在 JSON 里写好的 start/end/text/voice_end，
-        # 不再重切文字、也不删除 voice_end（缺字段时退回 end）。
+        # 尊重 JSON 里写好的 start/end/text/voice_end；缺 voice_end 时退回 end。
         for s in segs:
             if not s.get("voice_end"):
                 s["voice_end"] = s["end"]
+        if reuse_timeline:
+            ck(38, "[时间轴] 已完全以你改过的文件为准（不自动重排、无需 locked）")
 
     ck(40, f"[4/6] 合成语音（{cfg['tts_engine']}）…")
     engine = tts.make_engine(cfg, ffmpeg)
