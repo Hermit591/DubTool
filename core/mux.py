@@ -52,37 +52,56 @@ def write_srt(srt_items, path):
     return path
 
 
-def verify(track, sr, segments, video_duration):
+def verify(track, sr, segments, video_duration, blocks=None):
     """返回可写进报告的校验数据：时长差、发声区间内能量、真实静音段能量。
 
-    语速均衡后，一段语音可能越过窗口尾部借用静音（voice_end > end），
-    此时「窗口起点前」不再是静音，不能拿它判异常。改用两段 voice_end
-    与下一段 start 之间的真实空白做检测。
+    v4 句子块模式下传 blocks：每个句子块一个连续发声区间，块与块之间是
+    真实静音。检测「块内能量足够 + 块间静音」即可，句内不再分段检测
+    （v3 按段切分检测会把同一句内的正常连续语音误判成重叠/异常）。
     """
     rows = []
-    for i, s in enumerate(segments):
-        a = int(s["start"] * sr)
-        b = int(s.get("voice_end", s["end"]) * sr)
-        inside = track[a:min(b, len(track))]
-        prev_end = float(segments[i - 1].get("voice_end", segments[i - 1]["end"])) if i else 0.0
-        gap_a = int(prev_end * sr)
-        gap = track[gap_a:a] if a > gap_a else np.zeros(1, dtype=np.float32)
-        rows.append({
-            "id": s["id"],
-            "start": s["start"], "end": s["end"],
-            "voice_end": round(float(s.get("voice_end", s["end"])), 4),
-            "text": s["text"],
-            "dub_rms": round(float(np.sqrt(np.mean(inside ** 2))), 5) if len(inside) else 0.0,
-            "gap_rms": round(float(np.sqrt(np.mean(gap ** 2))), 6) if len(gap) else 0.0,
-        })
+    if blocks is not None:
+        for i, b in enumerate(blocks):
+            a = int(round(b["start"] * sr))
+            ve = b["start"] + b["native"]
+            bpos = int(round(ve * sr))
+            inside = track[a:min(bpos, len(track))]
+            prev_end = blocks[i - 1]["start"] + blocks[i - 1]["native"] if i else 0.0
+            gap_a = int(round(prev_end * sr))
+            gap = track[gap_a:a] if a > gap_a else np.zeros(1, dtype=np.float32)
+            rows.append({
+                "id": b["id"], "start": round(b["start"], 4),
+                "end": round(ve, 4), "voice_end": round(ve, 4),
+                "text": b["text"],
+                "dub_rms": round(float(np.sqrt(np.mean(inside ** 2))), 5) if len(inside) else 0.0,
+                "gap_rms": round(float(np.sqrt(np.mean(gap ** 2))), 6) if len(gap) else 0.0,
+            })
+        n_unit = "句子块"
+    else:
+        for i, s in enumerate(segments):
+            a = int(s["start"] * sr)
+            b = int(s.get("voice_end", s["end"]) * sr)
+            inside = track[a:min(b, len(track))]
+            prev_end = float(segments[i - 1].get("voice_end", segments[i - 1]["end"])) if i else 0.0
+            gap_a = int(prev_end * sr)
+            gap = track[gap_a:a] if a > gap_a else np.zeros(1, dtype=np.float32)
+            rows.append({
+                "id": s["id"],
+                "start": s["start"], "end": s["end"],
+                "voice_end": round(float(s.get("voice_end", s["end"])), 4),
+                "text": s["text"],
+                "dub_rms": round(float(np.sqrt(np.mean(inside ** 2))), 5) if len(inside) else 0.0,
+                "gap_rms": round(float(np.sqrt(np.mean(gap ** 2))), 6) if len(gap) else 0.0,
+            })
+        n_unit = "段"
+    rows = [r for r in rows if (r["text"] or "").strip()]
     # 空文本窗口（如 ASR 误检到的空句）本就该是静音，不计入异常
-    bad = [r for r in rows if (r["dub_rms"] < 0.01 or r["gap_rms"] > 0.01)
-           and (r["text"] or "").strip()]
+    bad = [r for r in rows if r["dub_rms"] < 0.01 or r["gap_rms"] > 0.01]
     return {
         "duration_video": round(video_duration, 4),
         "duration_track": round(len(track) / sr, 4),
         "drift_ms": round((len(track) / sr - video_duration) * 1000, 3),
-        "segments": len(rows), "bad_segments": len(bad), "rows": rows,
+        "segments": len(rows), "unit": n_unit, "bad_segments": len(bad), "rows": rows,
         "peak": round(float(np.max(np.abs(track))), 4),
     }
 

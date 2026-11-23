@@ -153,6 +153,73 @@ def spectral_metrics(y, sr):
 
 # ---------------------------------------------------------------- 整轨构建
 
+def build_track_blocks(blocks, total_duration, sr_out, log=print,
+                       tone_match=True, tone_strength=0.85, loudness_match=True,
+                       output_peak=0.95):
+    """句子连续块铺轨：每句一个完整波形块，从 start 起铺 native 秒。
+
+    与 build_track 的本质区别：不按段切分、不 fit_exact 二次裁剪/补零。
+    v3 把整句按字数切成多段，切点落在字词中间，且相邻段 voice_end 与 start
+    错位导致波形重叠相加 —— 听感就是「碎片 + 漂移 + 金属音」。v4 每句整块
+    连续播放，块与块之间由时间轴的自然静音隔开，句内韵律完全保留。
+    """
+    track = np.zeros(int(round(total_duration * sr_out)), dtype=np.float32)
+
+    # 与第一遍同构：重采样 → 带宽补偿 → 柔化
+    waves = []
+    for b in blocks:
+        y = resample(np.asarray(b["wave"], dtype=np.float32), b["sr"], sr_out)
+        if b["sr"] < 16000:
+            y = excite(y, sr_out)
+        waves.append(soften(y, sr_out))
+
+    # 参考谱取中位数；音色/响度一致化按整句块做
+    specs = [avg_spectrum(w, sr_out) for w in waves]
+    good = [s for s in specs if s is not None]
+    ref = np.median(np.stack(good), axis=0) if len(good) >= 3 else None
+    before, after = [], []
+    if tone_match and ref is not None:
+        for i, w in enumerate(waves):
+            if specs[i] is None:
+                continue
+            f, g = tone_gain_db(specs[i], ref, sr_out, strength=tone_strength)
+            before.append(spectral_metrics(w, sr_out))
+            waves[i] = apply_gain(w, sr_out, f, g)
+            after.append(spectral_metrics(waves[i], sr_out))
+    if loudness_match:
+        rms = [float(np.sqrt(np.mean(w ** 2))) for w in waves]
+        tgt = float(np.median([r for r in rms if r > 1e-5])) if any(r > 1e-5 for r in rms) else 0.0
+        for i, w in enumerate(waves):
+            if tgt > 0 and rms[i] > 1e-5:
+                waves[i] = (w * float(np.clip(tgt / rms[i], 0.65, 1.55))).astype(np.float32)
+
+    report = []
+    for b, y in zip(blocks, waves):
+        a = int(round(b["start"] * sr_out))
+        # 整块连续铺：只在视频尾部越界时裁剪，绝不在中间切分或补零
+        n = min(len(y), len(track) - a) if a < len(track) else 0
+        if n > 0:
+            track[a:a + n] += y[:n]
+        ve = round(b["start"] + n / sr_out, 4)
+        report.append({"id": b["id"], "start": b["start"], "end": ve,
+                       "voice_end": ve, "text": b["text"],
+                       "target": round(n / sr_out, 4), "samples": n,
+                       "native": b["native"], "adjust_pct": b["adjust_pct"],
+                       "tone": spectral_metrics(y, sr_out)})
+
+    peak = float(np.max(np.abs(track)))
+    if peak > 1e-6:
+        track *= float(output_peak) / peak
+
+    if log and before and after:
+        b = np.array([x["hf_ratio"] for x in before])
+        a2 = np.array([x["hf_ratio"] for x in after])
+        spread = lambda v: (v.max() - v.min()) / max(v.mean(), 1e-9) * 100
+        log(f"     音色一致：高频比离散 {spread(b):.0f}% → {spread(a2):.0f}%"
+            f"（强度 {tone_strength}，峰值 {float(np.max(np.abs(track))):.3f}）")
+    return track, report
+
+
 def build_track(segments, audios, total_duration, sr_out, log=print,
                 tone_match=True, tone_strength=0.85, loudness_match=True,
                 output_peak=0.95, allow_stretch=False):

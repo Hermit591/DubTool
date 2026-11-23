@@ -115,32 +115,36 @@ def run(cfg, log=print, progress=lambda pct, msg: None, cancel=lambda: False):
     sent_audios = engine.synth_batch(sent_texts, log=log)
     if cancel():
         raise Cancelled()
-    audios, retune = sentence.plan(
+    blocks, retune = sentence.plan(
         segs, order, groups, sent_audios, sent_texts, engine, total, log=log,
         max_adjust=float(cfg.get("sentence_max_adjust", 0.15)))
-    ck(62, f"     句子级定长完成：{len(retune)} 句，句内同速")
+    ck(62, f"     句子级定长完成：{len(retune)} 句，整块连续铺轨、句内不切分")
 
     # 字幕/时间轴只展示原字：去掉行内读音标注（合成已用 fix 后的文本）
     for s in segs:
         s["text"] = pron.clean(s["text"])
-    # 字幕终点同步到新的发声终点：起点锚定画面切换点不变，终点跟着波形走，
-    # 避免声音念完了字幕还挂着（或字幕先走声音还没到）的错位感。
+    # 把每个句子块的实际发声终点回填到它覆盖的各段 voice_end，
+    # 供 mux.verify / 字幕 / 时间轴使用：句子起点锚定画面，终点跟着波形走。
+    for pos, g in enumerate(order):
+        blk = blocks[pos]
+        ve = round(blk["start"] + blk["native"], 4)
+        for i in groups[g]:
+            segs[i]["voice_end"] = ve
     srt_new = []
     for k, (a, b, t) in enumerate(srt):
-        if k < len(order):
-            last = segs[groups[order[k]][-1]]
-            b = float(last.get("voice_end", b))
-        srt_new.append((a, round(b, 3), pron.clean(t)))
+        if k < len(blocks):
+            a = blocks[k]["start"]
+            b = round(blocks[k]["start"] + blocks[k]["native"], 3)
+        srt_new.append((a, b, pron.clean(t)))
     srt = srt_new
 
-    ck(70, "[5/6] 采样点级对齐 + 音色一致化…")
-    track, report = align.build_track(
-        segs, audios, total, sr_out, log=log,
+    ck(70, "[5/6] 整块连续铺轨 + 音色一致化…")
+    track, report = align.build_track_blocks(
+        blocks, total, sr_out, log=log,
         tone_match=bool(cfg.get("tone_match", True)),
         tone_strength=float(cfg.get("tone_strength", 0.85)),
         loudness_match=bool(cfg.get("loudness_match", True)),
-        output_peak=float(cfg.get("output_peak", 0.89)),
-        allow_stretch=bool(cfg.get("allow_stretch", False)))
+        output_peak=float(cfg.get("output_peak", 0.89)))
     wav_path = os.path.join(work, "dub_48k.wav")
     mux.write_wav(track, sr_out, wav_path)
 
@@ -155,7 +159,7 @@ def run(cfg, log=print, progress=lambda pct, msg: None, cancel=lambda: False):
     stem = os.path.splitext(os.path.basename(out))[0]
     base = os.path.dirname(out)
     srt_path = mux.write_srt(srt, os.path.join(base, stem + "_台词.srt"))
-    verify = mux.verify(track, sr_out, segs, total)
+    verify = mux.verify(track, sr_out, segs, total, blocks=blocks)
     mux.write_report({"tts_engine": cfg["tts_engine"], "asr_engine": cfg["asr_engine"],
                       "pace_balance": bool(cfg.get("pace_balance", True)),
                       "tone_match": bool(cfg.get("tone_match", True)),

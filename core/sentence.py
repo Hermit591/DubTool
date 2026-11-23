@@ -1,11 +1,14 @@
 """句子级波形定长 + 弹性停顿（替代逐段变速）。
 
-设计要点：
-  * 每句一次整段合成，句内保持 TTS 自然语速 —— 不再逐段拧 rate。
-    逐段变速正是「时快时慢」的根源（实测同句内 -13.8% ~ +37.3% 横跳）。
+设计要点（v4，修复「碎片 + 重叠漂移」）：
+  * 每句一次整段合成，整句波形作为一个**连续块**铺轨，句内绝不切分。
+    v3 曾把整句波形按字数比例切成 N 段塞回原分段结构，切点落在字词中间
+    （吞字=碎片），且 voice_end 用「句首+连续偏移」算、铺轨起点用各段原始
+    start（带静音间隔），两者错位导致相邻段波形重叠叠加（漂移+金属音）。
+    v4 彻底取消按段切分：一句 = 一个连续块，从句子起点铺 native 秒。
   * 句子起点锚定原声窗口起点 = 画面切换点，消除音画轻微错位。
   * 发声时长由合成波形的真实长度决定；当波形长过「到下一句起点」的
-    可用空间时，整句统一微调一次（限幅 max_adjust），句内依旧同速。
+    可用空间时，只整句统一微调一次（限幅 max_adjust），句内依旧同速。
   * 句尾多出/少下的时间由原窗口之后的静音间隔弹性吸收。
 """
 import numpy as np
@@ -29,18 +32,20 @@ def _han_len(t):
 
 
 def plan(segs, order, groups, sent_audios, sent_texts, engine, total, log=print,
-         max_adjust=0.15, min_gap=0.06, headroom=0.99):
-    """把整句波形按字数比例切给各段，重算每段 voice_end。
+         max_adjust=0.15, min_gap=0.08, headroom=0.99):
+    """产出「句子连续块」列表，不再按段切波形。
 
-    返回 (audios, retune)：
-      audios[i] = (wave, sr) 与 segs 一一对应；
-      retune   = 句子级微调记录（供报告/日志）。
+    返回 (blocks, retune)：
+      blocks[k] = {"start": 句子起点秒, "wave": np.float32, "sr": int,
+                   "native": 真实发声秒, "text": 整句文本, "group": 组号,
+                   "id": 块 id, "adjust_pct": 整句微调百分比}
+      每个块在 align.build_track 里作为一个连续区间铺轨，块内不切、不补零。
+      retune = 句子级微调记录（供报告/日志）。
     """
-    N, P = len(segs), len(order)
-    audios = [None] * N
-    retune = []
+    P = len(order)
+    blocks, retune = [], []
 
-    # 先统一去引擎前后静音：停顿由时间轴负责，不能让 TTS 自己加
+    # 统一去引擎前后静音：停顿由时间轴负责，不能让 TTS 自己加。
     trims = []
     for w, sr in sent_audios:
         trims.append((align.trim_silence(np.asarray(w, dtype=np.float32), sr), sr))
@@ -52,12 +57,12 @@ def plan(segs, order, groups, sent_audios, sent_texts, engine, total, log=print,
         st = float(segs[idxs[0]]["start"])
         nxt = (float(segs[groups[order[pos + 1]][0]]["start"])
                if pos + 1 < P else float(total))
-        # 可用时长：本句起点到下一句起点之间，留 min_gap 最小间隔
+        # 可用时长：本句起点到下一句起点之间，留 min_gap 最小间隔。
         avail = max(0.3, nxt - st - min_gap)
         w, sr = trims[pos]
         native = len(w) / sr if sr else 0.0
 
-        # 整句统一微调一次（只加速方向；句内绝不变速）
+        # 整句统一微调一次（只加速方向；句内绝不变速）。
         adj = 0.0
         if native > avail * headroom and native > 0.5:
             adj = float(np.clip(native / (avail * headroom) - 1.0, 0.0, max_adjust))
@@ -73,27 +78,23 @@ def plan(segs, order, groups, sent_audios, sent_texts, engine, total, log=print,
         w, sr = trims[pos]
         native = len(w) / sr if sr else 0.0
 
-        # 按字数比例把整句波形切给各段；切点只作数组边界，播放首尾相接不断音
-        weights = np.array([_han_len(sent_texts[i] if i < len(sent_texts) else segs[i]["text"])
-                            for i in idxs], dtype=float)
-        if weights.sum() <= 0:
-            weights = np.ones(len(idxs), dtype=float)
-        weights /= weights.sum()
-        cursor = 0
-        for k, i in enumerate(idxs):
-            n = int(round(len(w) * weights[k]))
-            if k == len(idxs) - 1:
-                n = len(w) - cursor
-            n = max(0, n)
-            audios[i] = (w[cursor:cursor + n], sr)
-            segs[i]["voice_end"] = round(st + (cursor + n) / sr, 4)
-            cursor += n
+        # 二次保险：微调后仍超出可用空间的极端情况，尾部裁剪到 avail，
+        # 绝不让本句波形越过下一句起点造成重叠（宁可吞掉一点点尾音）。
+        cap_n = int(avail * sr)
+        if cap_n > 0 and len(w) > cap_n:
+            w = w[:cap_n]
+            native = len(w) / sr
 
+        blocks.append({
+            "id": f"g{g + 1:02d}", "group": g, "start": round(st, 4),
+            "wave": w, "sr": sr, "native": round(native, 4),
+            "text": sent_texts[pos], "adjust_pct": round(adj * 100.0, 1),
+        })
         retune.append({"group": g, "native": round(native, 3), "avail": round(avail, 3),
                        "adjust": round(adj * 100.0, 1), "start": round(st, 3)})
 
     if retune:
         ad = [r["adjust"] for r in retune]
-        log(f"     句子级定长：{len(retune)} 句，句内同速，"
+        log(f"     句子级定长：{len(retune)} 句，整块连续铺轨，句内不切分；"
             f"句级微调 {min(ad):+.0f}~{max(ad):+.0f}%（上限 {max_adjust*100:.0f}%）")
-    return audios, retune
+    return blocks, retune
