@@ -38,6 +38,7 @@ DEFAULT = {
     "allow_stretch": False,                # 是否允许相位声码器变速（开启会发蒙）
     "rate_iterations": 2,                  # TTS 语速参数精调轮数
     "rate_headroom": 0.985,                # 目标时长余量，宁可尾部补静音也不吞字
+    "sentence_max_adjust": 0.15,            # 句子级定长：整句统一微调上限（句内绝不变速，消除时快时慢）
     "tts_cache": True,                     # 缓存合成结果：锁定随机性、断网可复现、重跑更快
     "vits_samples": 1,                     # 本地 VITS 显式抽卡次数（>1 取时长最稳的一张）
 

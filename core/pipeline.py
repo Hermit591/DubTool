@@ -8,7 +8,7 @@ import json
 import shutil
 import numpy as np
 
-from . import extract, vad, asr, tts, align, mux, voices, pace, pron
+from . import extract, vad, asr, tts, align, mux, voices, pace, pron, sentence
 from .config import resolve_ffmpeg
 
 
@@ -104,58 +104,34 @@ def run(cfg, log=print, progress=lambda pct, msg: None, cancel=lambda: False):
     n_fix = sum(1 for s, t in zip(segs, texts) if (s["text"] or "") != t)
     if n_fix:
         log(f"     多音字校准：{n_fix} 段已按读音替换后合成（字幕保留原字）")
-    audios = engine.synth_batch(texts, log=log)
+    # ---- 波形定长 + 弹性停顿：按句子整段合成，句内绝不变速 ----
+    # 旧策略逐段拧 rate（-14%~+37%）把波形硬塞进原窗口，是「时快时慢」的根源。
+    # 新策略：一句一次合成，用真实波形时长定发声终点；超出到下一句的空间时
+    # 整句统一微调一次（限幅），句内同速；句尾停顿由原声间隔弹性吸收。
+    groups, order = sentence.group_indices(segs)
+    sent_texts = ["".join(texts[i] for i in groups[g]) for g in order]
     if cancel():
         raise Cancelled()
-
-    # 在 TTS 参数域把每段自然时长调准 —— 波形不再经过相位声码器。
-    # 实测 native(pct) ≈ K/(1+pct/100)，反解一次即可把误差收敛到 ±3%，
-    # 剩下的一点差值用补静音/裁剪消化，音质全程保持原生。
-    base_pct = 0.0
-    if cfg["tts_engine"] == "edge-tts":
-        base_pct = float(str(cfg.get("edge_rate", "-4%")).replace("%", "").replace("+", "") or 0)
-    pcts = [base_pct for _ in segs]
-    headroom = float(cfg.get("rate_headroom", 0.985))
-    iterations = max(1, int(cfg.get("rate_iterations", 2)))
-    for rnd in range(iterations):
-        jobs = []
-        for i, seg in enumerate(segs):
-            target = float(seg.get("voice_end", seg["end"])) - seg["start"]
-            if target <= 0.2 or not seg["text"].strip():
-                continue
-            wav, s = audios[i]
-            native = align.voiced_seconds(wav, s)
-            if native <= 0.05:
-                continue
-            K = native * (1.0 + pcts[i] / 100.0)
-            new_pct = float(np.clip(100.0 * (K / (target * headroom) - 1.0), -45.0, 75.0))
-            if abs(new_pct - pcts[i]) >= 2.0:
-                jobs.append((i, new_pct))
-            pcts[i] = new_pct
-        if not jobs:
-            break
-        try:
-            for i, item in engine.resynth_many(jobs, texts, tag=f"r{rnd}").items():
-                audios[i] = item
-        except Exception as e:
-            log(f"     第 {rnd+1} 轮语速精调跳过（{type(e).__name__}），保留首次合成")
-            break
-    retune = []
-    for i, seg in enumerate(segs):
-        target = float(seg.get("voice_end", seg["end"])) - seg["start"]
-        wav, s = audios[i]
-        native = align.voiced_seconds(wav, s)
-        retune.append({"id": seg["id"], "rate_pct": round(pcts[i], 1),
-                       "native": round(native, 3), "target": round(target, 3),
-                       "fit": round(native / target, 3) if target > 0 else 0.0})
-    fitv = np.array([r["fit"] for r in retune if r["target"] > 0.2])
-    ck(62, f"     语速精调：rate {min(pcts):+.0f}% ~ {max(pcts):+.0f}%，"
-           f"自然/目标 {fitv.min():.2f} ~ {fitv.max():.2f}")
+    sent_audios = engine.synth_batch(sent_texts, log=log)
+    if cancel():
+        raise Cancelled()
+    audios, retune = sentence.plan(
+        segs, order, groups, sent_audios, sent_texts, engine, total, log=log,
+        max_adjust=float(cfg.get("sentence_max_adjust", 0.15)))
+    ck(62, f"     句子级定长完成：{len(retune)} 句，句内同速")
 
     # 字幕/时间轴只展示原字：去掉行内读音标注（合成已用 fix 后的文本）
     for s in segs:
         s["text"] = pron.clean(s["text"])
-    srt = [(a, b, pron.clean(t)) for a, b, t in srt]
+    # 字幕终点同步到新的发声终点：起点锚定画面切换点不变，终点跟着波形走，
+    # 避免声音念完了字幕还挂着（或字幕先走声音还没到）的错位感。
+    srt_new = []
+    for k, (a, b, t) in enumerate(srt):
+        if k < len(order):
+            last = segs[groups[order[k]][-1]]
+            b = float(last.get("voice_end", b))
+        srt_new.append((a, round(b, 3), pron.clean(t)))
+    srt = srt_new
 
     ck(70, "[5/6] 采样点级对齐 + 音色一致化…")
     track, report = align.build_track(

@@ -1,8 +1,12 @@
 @echo off
 set PYTHONUTF8=1
 cd /d "%~dp0"
-set "PY=D:\Python3.10\python.exe"
-if not exist "%PY%" set "PY=python"
+set "PY=python"
+where python >nul 2>nul || (
+  echo Python not found in PATH. Install Python 3.10+ and add it to PATH first.
+  pause
+  exit /b 1
+)
 
 echo [1/3] Installing python packages ...
 "%PY%" -m pip install -q numpy scipy soundfile librosa sherpa-onnx edge-tts "setuptools<81"

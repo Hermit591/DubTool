@@ -156,6 +156,7 @@ class App(tk.Tk):
         self.borrow_var = tk.DoubleVar(value=0.90)
         self.pmid_var = tk.DoubleVar(value=0.18)
         self.pbnd_var = tk.DoubleVar(value=0.55)
+        self.sadj_var = tk.DoubleVar(value=0.15)
         r4b = ttk.Frame(g4); r4b.grid(row=1, column=0, columnspan=8, sticky="w", pady=(8, 0))
         ttk.Checkbutton(r4b, text="语速均衡（消除忽快忽慢，建议开启）",
                         variable=self.pace_var).pack(side="left")
@@ -165,8 +166,10 @@ class App(tk.Tk):
         ttk.Entry(r4b, textvariable=self.pmid_var, width=5, font=f).pack(side="left", padx=2)
         ttk.Label(r4b, text="句尾停顿(s)", font=f).pack(side="left", padx=(8, 0))
         ttk.Entry(r4b, textvariable=self.pbnd_var, width=5, font=f).pack(side="left", padx=2)
-        ttk.Label(r4b, text="停顿越大越舒缓；越小越紧凑",
-                  foreground="#888", font=("Microsoft YaHei UI", 9)).pack(side="left", padx=8)
+        ttk.Label(r4b, text="整句微调上限", font=f).pack(side="left", padx=(10, 0))
+        ttk.Entry(r4b, textvariable=self.sadj_var, width=5, font=f).pack(side="left", padx=2)
+        ttk.Label(r4b, text="0.15=最多整句±15%；句内绝不变速",
+                  foreground="#888", font=("Microsoft YaHei UI", 9)).pack(side="left", padx=6)
         self.tone_var = tk.BooleanVar(value=True)
         self.tone_str_var = tk.DoubleVar(value=0.85)
         self.stretch_var = tk.BooleanVar(value=False)
@@ -245,6 +248,7 @@ class App(tk.Tk):
         self.borrow_var.set(float(c.get("pace_borrow", 0.90)))
         self.pmid_var.set(float(c.get("pace_pause_mid", 0.18)))
         self.pbnd_var.set(float(c.get("pace_pause_bnd", 0.55)))
+        self.sadj_var.set(float(c.get("sentence_max_adjust", 0.15)))
         self.tone_var.set(bool(c.get("tone_match", True)))
         self.tone_str_var.set(float(c.get("tone_strength", 0.85)))
         self.stretch_var.set(bool(c.get("allow_stretch", False)))
@@ -296,6 +300,7 @@ class App(tk.Tk):
             "pace_borrow": float(self.borrow_var.get()),
             "pace_pause_mid": float(self.pmid_var.get()),
             "pace_pause_bnd": float(self.pbnd_var.get()),
+            "sentence_max_adjust": float(self.sadj_var.get()),
             "tone_match": bool(self.tone_var.get()),
             "tone_strength": float(self.tone_str_var.get()),
             "allow_stretch": bool(self.stretch_var.get()),
@@ -345,17 +350,14 @@ class App(tk.Tk):
         it = self.voice_map.get(self.voice_var.get())
         if not it:
             return
-        eng = it["engine"]
-        # 音色下拉就是引擎开关：把引擎名直接打出来，避免改配置以为换了引擎。
-        tip = {"edge-tts": "在线神经语音（需联网，音质好）",
-               "local-vits": "本地离线 ONNX（不联网，词典可强制读音，8kHz）",
-               "cosyvoice": "本地大模型（需先启动 CosyVoice 服务，参数见 config.json 的 cosy_* 项）"}.get(
-                   eng, "本地引擎")
-        color = {"edge-tts": "#2a6fb0", "local-vits": "#c0392b",
-                 "cosyvoice": "#0f6e56"}.get(eng, "#555")
+        online = it["engine"] == "edge-tts"
+        # 音色下拉就是引擎开关（core/voices.py:59 apply）：这里必须把引擎名
+        # 直接打出来，否则用户以为「改配置=换引擎」，实际仍跑 Edge 读错字。
         self.voice_info.config(
-            text=f"引擎 {eng}  |  {it['label']}  |  {tip}  |  ID {it['id']}",
-            foreground=color)
+            text=f"引擎 {it['engine']}  |  {it['label']}  |  "
+                 f"{'在线神经语音（需联网，音质好）' if online else '本地离线 ONNX（不联网，词典可强制读音，8kHz）'}"
+                 f"  |  ID {it['id']}",
+            foreground="#2a6fb0" if online else "#c0392b")
         self._show_rate(); self._show_pitch()
 
     def _show_rate(self, *_):

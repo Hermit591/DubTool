@@ -34,6 +34,7 @@
   "allow_stretch": false,
   "rate_iterations": 2,
   "rate_headroom": 0.985,
+  "sentence_max_adjust": 0.15,
   "tts_cache": true,
   "sensevoice_dir": "models/sensevoice",
   "aishell3_dir": "models/aishell3",
